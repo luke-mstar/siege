@@ -315,6 +315,121 @@ http_post(CONN *C, URL *U)
   return 0;
 }
 
+/**
+ * returns int, ( < 0 == error )
+ * formats and sends an HTTP/1.0 request
+ */
+int
+http_delete(CONN *C, URL *U)
+{
+  int  rlen;
+  char *protocol; 
+  char *keepalive;
+  char hoststr[512];
+  char authwww[512];
+  char authpxy[512];
+  char request[REQBUF+MAX_COOKIE_SIZE+8];  
+  char portstr[16];
+  char fullpath[4096];
+  char cookie[MAX_COOKIE_SIZE+8];
+  time_t now;
+  char *ifmod = url_get_if_modified_since(U);
+  char *ifnon = url_get_etag(U);
+
+  now = time(NULL);
+
+  memset(hoststr, 0, sizeof hoststr);
+  memset(cookie,  0, sizeof cookie);
+  memset(request, 0, sizeof request);
+  memset(portstr, 0, sizeof portstr);
+
+  /* Request path based on proxy settings */
+  if(my.proxy.required){
+    sprintf(
+      fullpath, "%s://%s:%d%s", C->prot == HTTP?"http":"https", U->hostname, U->port, U->pathname 
+    );
+  } else {
+    sprintf(fullpath, "%s", U->pathname);
+  }
+
+  if((U->port==80 && C->prot==HTTP) || (U->port==443 && C->prot==HTTPS)){
+    portstr[0] = '\0';  
+  } else {
+    snprintf(portstr, sizeof portstr, ":%d", U->port);
+  }
+
+  /* HTTP protocol string */
+  protocol  = (my.protocol == TRUE)?"HTTP/1.1":"HTTP/1.0";
+  keepalive = (C->connection.keepalive == TRUE)?"keep-alive":"close";
+  get_cookie_header(pthread_self(), U->hostname, cookie); 
+  if(C->auth.www){
+    if(C->auth.type.www==DIGEST){
+      char *tmp;
+      tmp = digest_generate_authorization(C->auth.wwwchlg, C->auth.wwwcred, "GET", fullpath);
+      rlen = snprintf(authwww, sizeof(authwww), "Authorization: %s\015\012", tmp);
+      free(tmp);
+    } else {
+      rlen = snprintf(authwww, sizeof(authwww), "Authorization: Basic %s\015\012", my.auth.encode);
+    }
+  }
+  if(C->auth.proxy){
+    if(C->auth.type.proxy==DIGEST){
+      char *tmp;
+
+      tmp = digest_generate_authorization(C->auth.proxychlg, C->auth.proxycred, "GET", fullpath);
+      rlen = snprintf( authpxy, sizeof(authpxy), "Proxy-Authorization: %s\015\012", tmp);
+      free(tmp);
+    } else  {
+      rlen = snprintf( authpxy, sizeof(authpxy), "Proxy-Authorization: Basic %s\015\012", my.proxy.encode);
+    }
+  }
+
+  /* Only send the Host header if one wasn't provided. */
+  if(strncasestr(my.extra, "host:", sizeof(my.extra)) == NULL){
+    rlen = snprintf(hoststr, sizeof(hoststr), "Host: %s%s\015\012", U->hostname, portstr);
+  }
+
+  /** 
+   * build a request string to pass to the server       
+   */
+  rlen = snprintf(
+    request, sizeof( request ),
+    "DELETE %s %s\015\012"                    /* fullpath, protocol     */
+    "%s"                                   /* hoststr                */
+    "%s"                                   /* authwww   or empty str */
+    "%s"                                   /* authproxy or empty str */
+    "%s"                                   /* cookie    or empty str */
+    "%s"                                   /* ifmod     or empty str */
+    "%s"                                   /* ifnon     or empty str */
+    "Accept: */*\015\012"                  /*             */
+    "Accept-Encoding: %s\015\012"          /* my.encoding */
+    "User-Agent: %s\015\012"               /* my uagent   */
+    "%s"                                   /* my.extra    */
+    "Connection: %s\015\012\015\012",      /* keepalive   */
+    fullpath, protocol, hoststr,
+    (C->auth.www==TRUE)?authwww:"",
+    (C->auth.proxy==TRUE)?authpxy:"",
+    (strlen(cookie) > 8)?cookie:"", 
+    (ifmod!=NULL)?ifmod:"",
+    (ifnon!=NULL)?ifnon:"",
+    my.encoding, my.uagent, my.extra, keepalive 
+  );
+ 
+  if(my.debug || my.get){ printf("%s\n", request); fflush(stdout); }
+  if(rlen < 0 || rlen > (int)sizeof(request)){ 
+    NOTIFY(FATAL, "HTTP DELETE: request buffer overrun!");
+  }
+  if((socket_write(C, request, rlen)) < 0){
+    xfree(ifmod);
+    xfree(ifnon);
+    return -1;
+  }
+   
+  xfree(ifmod);
+  xfree(ifnon);
+  return 0;
+}
+
 void
 http_free_headers(HEADERS *h)
 {

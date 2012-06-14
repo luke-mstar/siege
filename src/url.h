@@ -31,7 +31,8 @@
  */
 typedef enum {
   URL_GET   = 0,
-  URL_POST  = 1
+  URL_POST  = 1,
+  URL_DELETE = 2,
 } DIRECTIVE;
 
 /**

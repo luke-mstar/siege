@@ -341,6 +341,12 @@ build_url(char *url, int defaultport, int id)
     *post_cmd = 0;
     post_cmd += 5;
     process_post_data(U, post_cmd);
+  } else if (strstr(url, " DELETE")){
+    U->calltype   = URL_DELETE;
+    U->postdata   = NULL;
+    U->posttemp   = NULL;
+    U->postlen    = 0;
+    *strstr(url, " DELETE")=0;
   } else {
     U->calltype   = URL_GET;
     U->postdata   = NULL;

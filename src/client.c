@@ -304,7 +304,13 @@ http_request(CONN *C, URL *U, CLIENT *client)
       socket_close(C);
       return FALSE;
     }
-  } else { 
+  } else if (U->calltype == URL_DELETE) { 
+    if ((http_delete(C, U)) < 0) {
+      C->connection.reuse = 0;
+      socket_close(C);
+      return FALSE;
+    }
+  } else if (U->calltype == URL_GET) { 
     if ((http_get(C, U)) < 0) {
       C->connection.reuse = 0;
       socket_close(C);
